@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 
 from openai import AsyncOpenAI
@@ -27,6 +28,14 @@ class ChunkResult:
     start_offset_ms: int
     segments: list[Segment] = field(default_factory=list)
     error: str | None = None
+
+
+@dataclass
+class TranscribeProgress:
+    """並列文字起こしの進捗(何チャンク完了したか)。"""
+
+    done: int
+    total: int
 
 
 async def _transcribe_chunk(
@@ -66,17 +75,26 @@ async def _transcribe_chunk(
         )
 
 
-async def transcribe_chunks(chunks: list[AudioChunk], api_key: str) -> list[ChunkResult]:
-    """複数の音声チャンクを並列にWhisper APIへ送信し、時系列順の結果を返す。
+async def transcribe_chunks(
+    chunks: list[AudioChunk], api_key: str
+) -> AsyncIterator[TranscribeProgress | list[ChunkResult]]:
+    """複数の音声チャンクを並列にWhisper APIへ送信する。
 
     同時実行数はconfig.CONCURRENCYで制御し、レート制限による失敗を抑える。
+    チャンクが1つ完了するごとにTranscribeProgressをyieldし、
+    全チャンク完了後に時系列順のlist[ChunkResult]を1回だけyieldする。
     """
     client = AsyncOpenAI(api_key=api_key)
     semaphore = asyncio.Semaphore(config.CONCURRENCY)
 
     tasks = [
-        _transcribe_chunk(client, index, chunk, semaphore)
+        asyncio.ensure_future(_transcribe_chunk(client, index, chunk, semaphore))
         for index, chunk in enumerate(chunks)
     ]
-    results = await asyncio.gather(*tasks)
-    return sorted(results, key=lambda r: r.index)
+
+    results: list[ChunkResult] = []
+    for done, coro in enumerate(asyncio.as_completed(tasks), start=1):
+        results.append(await coro)
+        yield TranscribeProgress(done=done, total=len(chunks))
+
+    yield sorted(results, key=lambda r: r.index)

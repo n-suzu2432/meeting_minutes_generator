@@ -1,9 +1,22 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { generateMinutes, type GenerateMinutesResponse } from "@/lib/api";
+import {
+  generateMinutes,
+  type GenerateMinutesResponse,
+  type MinutesProgressEvent,
+  type MinutesProgressStage,
+} from "@/lib/api";
 
 const ACCEPTED_EXTENSIONS = [".mp3", ".mp4", ".wav", ".m4a", ".webm"];
+
+const STAGE_STEPS: { key: MinutesProgressStage; label: string }[] = [
+  { key: "splitting", label: "音声分割" },
+  { key: "transcribing", label: "文字起こし" },
+  { key: "dictionary", label: "辞書置換" },
+  { key: "extracting", label: "AI抽出" },
+  { key: "formatting", label: "整形" },
+];
 
 type Props = {
   disabled?: boolean;
@@ -15,10 +28,15 @@ function isAcceptedFile(file: File): boolean {
   return ACCEPTED_EXTENSIONS.some((ext) => name.endsWith(ext));
 }
 
+function stageIndex(stage: MinutesProgressStage): number {
+  return STAGE_STEPS.findIndex((step) => step.key === stage);
+}
+
 export function UploadForm({ disabled, onResult }: Props) {
   const [file, setFile] = useState<File | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [progress, setProgress] = useState<MinutesProgressEvent | null>(null);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -26,13 +44,15 @@ export function UploadForm({ disabled, onResult }: Props) {
     if (!file) return;
     setIsLoading(true);
     setError(null);
+    setProgress(null);
     try {
-      const result = await generateMinutes(file);
+      const result = await generateMinutes(file, setProgress);
       onResult(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : "議事録の生成に失敗しました。");
     } finally {
       setIsLoading(false);
+      setProgress(null);
     }
   }
 
@@ -107,10 +127,45 @@ export function UploadForm({ disabled, onResult }: Props) {
         </button>
       </div>
 
-      {isLoading && (
-        <p className="mt-3 text-sm text-slate-500">
-          音声分割 → 並列文字起こし → 構造化抽出の順に処理しています。1時間程度の音声でも数分かかる場合があります。
-        </p>
+      {isLoading && progress && (
+        <div className="mt-4">
+          <div className="mb-2 flex items-center justify-between text-sm text-slate-600">
+            <span>{progress.message}</span>
+            <span className="font-medium tabular-nums">{progress.progress}%</span>
+          </div>
+          <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200">
+            <div
+              className="h-full rounded-full bg-indigo-600 transition-all duration-300"
+              style={{ width: `${progress.progress}%` }}
+            />
+          </div>
+          <ol className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs">
+            {STAGE_STEPS.map((step) => {
+              const currentIdx = stageIndex(progress.stage);
+              const stepIdx = stageIndex(step.key);
+              const state =
+                stepIdx < currentIdx ? "done" : stepIdx === currentIdx ? "current" : "upcoming";
+              return (
+                <li
+                  key={step.key}
+                  className={
+                    state === "current"
+                      ? "font-semibold text-indigo-700"
+                      : state === "done"
+                        ? "text-emerald-600"
+                        : "text-slate-400"
+                  }
+                >
+                  {state === "done" ? "✓ " : ""}
+                  {step.label}
+                </li>
+              );
+            })}
+          </ol>
+          <p className="mt-2 text-xs text-slate-400">
+            1時間程度の音声でも数分かかる場合があります。
+          </p>
+        </div>
       )}
 
       {error && (

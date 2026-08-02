@@ -8,23 +8,28 @@ type Props = {
 };
 
 export function DictionaryEditor({ initialEntries }: Props) {
-  const [entries, setEntries] = useState<DictionaryEntry[]>(
-    initialEntries.length > 0 ? initialEntries : [{ wrong: "", correct: "" }]
-  );
+  const initialRows = initialEntries.length > 0 ? initialEntries : [{ wrong: "", correct: "" }];
+  const [entries, setEntries] = useState<DictionaryEntry[]>(initialRows);
+  const [lastSavedEntries, setLastSavedEntries] = useState<DictionaryEntry[]>(initialRows);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
+  const isDirty = JSON.stringify(entries) !== JSON.stringify(lastSavedEntries);
+
   function updateEntry(index: number, field: keyof DictionaryEntry, value: string) {
+    setMessage(null);
     setEntries((prev) =>
       prev.map((entry, i) => (i === index ? { ...entry, [field]: value } : entry))
     );
   }
 
   function addRow() {
+    setMessage(null);
     setEntries((prev) => [...prev, { wrong: "", correct: "" }]);
   }
 
   function removeRow(index: number) {
+    setMessage(null);
     setEntries((prev) => prev.filter((_, i) => i !== index));
   }
 
@@ -34,7 +39,9 @@ export function DictionaryEditor({ initialEntries }: Props) {
     try {
       const cleaned = entries.filter((entry) => entry.wrong.trim().length > 0);
       const saved = await saveDictionary(cleaned);
-      setEntries(saved.length > 0 ? saved : [{ wrong: "", correct: "" }]);
+      const savedRows = saved.length > 0 ? saved : [{ wrong: "", correct: "" }];
+      setEntries(savedRows);
+      setLastSavedEntries(savedRows);
       setMessage("辞書を保存しました。");
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "保存に失敗しました。");
@@ -50,6 +57,11 @@ export function DictionaryEditor({ initialEntries }: Props) {
           ▶
         </span>
         誤字置換辞書(社名・商品名)
+        {isDirty && (
+          <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-normal text-amber-800">
+            未保存の変更あり
+          </span>
+        )}
       </summary>
       <p className="mt-2 text-sm text-slate-500">
         文字起こし結果に含まれる誤表記を、正しい表記に一括置換します。
@@ -99,6 +111,11 @@ export function DictionaryEditor({ initialEntries }: Props) {
           {saving ? "保存中..." : "辞書を保存"}
         </button>
         {message && <span className="text-sm text-slate-500">{message}</span>}
+        {!message && isDirty && (
+          <span className="text-sm text-amber-700">
+            変更が保存されていません。「辞書を保存」を押すまで反映されません。
+          </span>
+        )}
       </div>
     </details>
   );

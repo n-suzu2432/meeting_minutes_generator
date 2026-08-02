@@ -37,6 +37,22 @@ export type GenerateMinutesResponse = {
   claude_cost_estimate_usd: number;
 };
 
+export type MinutesProgressStage =
+  | "splitting"
+  | "transcribing"
+  | "dictionary"
+  | "extracting"
+  | "formatting"
+  | "done"
+  | "error";
+
+export type MinutesProgressEvent = {
+  stage: MinutesProgressStage;
+  progress: number;
+  message: string;
+  result?: GenerateMinutesResponse;
+};
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 async function parseErrorDetail(response: Response): Promise<string> {
@@ -74,7 +90,8 @@ export async function saveDictionary(
 }
 
 export async function generateMinutes(
-  file: File
+  file: File,
+  onProgress?: (event: MinutesProgressEvent) => void
 ): Promise<GenerateMinutesResponse> {
   const formData = new FormData();
   formData.append("file", file);
@@ -82,6 +99,30 @@ export async function generateMinutes(
     method: "POST",
     body: formData,
   });
-  if (!res.ok) throw new Error(await parseErrorDetail(res));
-  return res.json();
+  if (!res.ok || !res.body) throw new Error(await parseErrorDetail(res));
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let finalResult: GenerateMinutesResponse | null = null;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      const event = JSON.parse(line) as MinutesProgressEvent;
+      onProgress?.(event);
+      if (event.stage === "error") throw new Error(event.message);
+      if (event.stage === "done" && event.result) finalResult = event.result;
+    }
+  }
+
+  if (!finalResult) {
+    throw new Error("議事録の生成に失敗しました(サーバーからの応答が不完全です)。");
+  }
+  return finalResult;
 }
