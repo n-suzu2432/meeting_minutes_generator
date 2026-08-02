@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import io
+import os
+import subprocess
+import tempfile
 from dataclasses import dataclass
 
 from pydub import AudioSegment
@@ -18,9 +21,61 @@ class AudioChunk:
     start_offset_ms: int
 
 
+def _downsample_to_temp_wav(file_path: str) -> str:
+    """pydubで読み込む前にffmpegで16kHz/モノラルへ変換し、メモリ使用量を抑える。
+
+    元のビットレート(例: 44.1kHz/16bit/ステレオ)のままpydubで読み込むと、
+    1時間の音声でPCMが600MB近くになり、メモリ制限の厳しいホスティング環境
+    (Render無料プラン等)ではOOMで処理が落ちることがある。事前にffmpegで
+    16kHz/モノラルへダウンサンプルしてから読み込むことでメモリ使用量を
+    1/5程度に抑えられる(Whisperも内部的に16kHzへリサンプルするため、
+    文字起こし精度への影響は実質ない)。
+    """
+    fd, tmp_path = tempfile.mkstemp(suffix=".wav")
+    os.close(fd)
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", file_path, "-ar", "16000", "-ac", "1", tmp_path],
+        check=True,
+        capture_output=True,
+    )
+    return tmp_path
+
+
+def probe_duration_seconds(file_path: str) -> float | None:
+    """ffprobeで音声/動画の長さ(秒)を取得する。
+
+    ffmpegでの本格的なデコード(ダウンサンプル)を始める前に、長すぎるファイルを
+    早期に弾くために使う。取得できない場合はNoneを返し、呼び出し側では
+    処理をブロックしない(誤検知でファイルを弾かないためのフェイルオープン)。
+    """
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                file_path,
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return float(result.stdout.strip())
+    except (subprocess.CalledProcessError, ValueError, FileNotFoundError):
+        return None
+
+
 def load_audio(file_path: str) -> AudioSegment:
-    """音声/動画ファイルを読み込む(mp4等の動画は音声トラックを自動抽出)。"""
-    return AudioSegment.from_file(file_path)
+    """音声/動画ファイルを読み込む(mp4等の動画は音声トラックを自動抽出)。
+
+    メモリ使用量を抑えるため、先にffmpegで16kHz/モノラルへ変換してから読み込む。
+    """
+    downsampled_path = _downsample_to_temp_wav(file_path)
+    try:
+        return AudioSegment.from_file(downsampled_path)
+    finally:
+        os.remove(downsampled_path)
 
 
 def _find_split_points(audio: AudioSegment, target_chunk_ms: int) -> list[int]:

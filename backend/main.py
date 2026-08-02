@@ -7,14 +7,14 @@ import os
 import tempfile
 from collections.abc import AsyncIterator
 
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 import config
 from core import dictionary
-from core.audio_utils import split_audio
+from core.audio_utils import probe_duration_seconds, split_audio
 from core.extract import ExtractionError, extract_minutes
 from core.markdown import render_minutes, render_statement_log
 from core.transcribe import ChunkResult, transcribe_chunks
@@ -89,7 +89,26 @@ def _progress_event(stage: str, progress: int, message: str, **extra: object) ->
     return (json.dumps(payload, ensure_ascii=False) + "\n").encode("utf-8")
 
 
-async def _generate_minutes_stream(file: UploadFile) -> AsyncIterator[bytes]:
+async def _wait_with_heartbeat(coro, stage: str, progress: int, message: str):
+    """coroの完了を待つ間、HEARTBEAT_INTERVAL_SECONDSごとに進捗イベントをyieldする。
+
+    音声分割(ffmpeg変換+無音検出)やClaude抽出など、単一の処理が長時間かかる
+    可能性がある箇所で使う。無通信状態が続くとRenderなどのリバースプロキシに
+    タイムアウトされるため、完了を待つ間も定期的にイベントを送って接続を維持する。
+    最後にyieldする値がcoroの結果(またはraiseされた例外)。
+    """
+    task = asyncio.ensure_future(coro)
+    elapsed = 0
+    while not task.done():
+        try:
+            await asyncio.wait_for(asyncio.shield(task), timeout=config.HEARTBEAT_INTERVAL_SECONDS)
+        except asyncio.TimeoutError:
+            elapsed += config.HEARTBEAT_INTERVAL_SECONDS
+            yield _progress_event(stage, progress, f"{message}({elapsed}秒経過)")
+    yield task.result()
+
+
+async def _generate_minutes_stream(tmp_path: str) -> AsyncIterator[bytes]:
     """議事録生成の各段階の進捗を、1行1JSONのNDJSONとして順次yieldする。
 
     音声分割→Whisper並列文字起こし→辞書置換→Claude構造化抽出→Markdown整形の
@@ -104,14 +123,26 @@ async def _generate_minutes_stream(file: UploadFile) -> AsyncIterator[bytes]:
         yield _progress_event("error", 0, "ffmpegが見つかりません。")
         return
 
-    suffix = os.path.splitext(file.filename or "")[1]
-    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        tmp.write(await file.read())
-        tmp_path = tmp.name
-
     try:
+        duration_seconds = await asyncio.to_thread(probe_duration_seconds, tmp_path)
+        if duration_seconds is not None and duration_seconds > config.MAX_DURATION_SECONDS:
+            yield _progress_event(
+                "error",
+                0,
+                f"音声が長すぎます(約{int(duration_seconds // 60)}分)。"
+                f"{config.MAX_DURATION_SECONDS // 60}分以内のファイルをご利用ください。",
+            )
+            return
+
         yield _progress_event("splitting", 5, "音声を分割しています...")
-        chunks = await asyncio.to_thread(split_audio, tmp_path)
+        chunks: list = []
+        async for event in _wait_with_heartbeat(
+            asyncio.to_thread(split_audio, tmp_path), "splitting", 5, "音声を分割しています"
+        ):
+            if isinstance(event, bytes):
+                yield event
+            else:
+                chunks = event
 
         whisper_cost_estimate_usd = (
             sum(len(c.audio_bytes) for c in chunks) / (64_000 / 8) / 60 * config.WHISPER_COST_PER_MINUTE
@@ -147,10 +178,18 @@ async def _generate_minutes_stream(file: UploadFile) -> AsyncIterator[bytes]:
         )
 
         yield _progress_event("extracting", 70, "Claudeで構造化抽出しています...")
+        extraction_result = None
         try:
-            extraction_result = await asyncio.to_thread(
-                extract_minutes, full_transcript, config.ANTHROPIC_API_KEY
-            )
+            async for event in _wait_with_heartbeat(
+                asyncio.to_thread(extract_minutes, full_transcript, config.ANTHROPIC_API_KEY),
+                "extracting",
+                70,
+                "Claudeで構造化抽出しています",
+            ):
+                if isinstance(event, bytes):
+                    yield event
+                else:
+                    extraction_result = event
         except ExtractionError as exc:
             yield _progress_event("error", 70, str(exc))
             return
@@ -182,4 +221,27 @@ async def _generate_minutes_stream(file: UploadFile) -> AsyncIterator[bytes]:
 
 @app.post("/api/minutes")
 async def generate_minutes(file: UploadFile = File(...)) -> StreamingResponse:
-    return StreamingResponse(_generate_minutes_stream(file), media_type="application/x-ndjson")
+    """音声/動画ファイルを受け取り、一時ファイルへ保存してからストリーミング処理を開始する。
+
+    ファイルサイズの上限チェックはストリームを開始する前に行い、超過時は
+    NDJSONイベントではなく通常のHTTPエラー(413)として返す
+    (フロントエンドは!res.okの時点でエラーとして扱えるため)。
+    """
+    content = await file.read()
+    if len(content) > config.MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"ファイルサイズが大きすぎます({len(content) / 1024 / 1024:.1f}MB)。"
+                f"{config.MAX_UPLOAD_BYTES // (1024 * 1024)}MB以内のファイルをご利用ください。"
+            ),
+        )
+
+    suffix = os.path.splitext(file.filename or "")[1]
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        tmp.write(content)
+        tmp_path = tmp.name
+
+    return StreamingResponse(
+        _generate_minutes_stream(tmp_path), media_type="application/x-ndjson"
+    )
