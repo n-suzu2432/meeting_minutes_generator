@@ -10,9 +10,15 @@ type Props = {
   onResult: (result: GenerateMinutesResponse) => void;
 };
 
+function isAcceptedFile(file: File): boolean {
+  const name = file.name.toLowerCase();
+  return ACCEPTED_EXTENSIONS.some((ext) => name.endsWith(ext));
+}
+
 export function UploadForm({ disabled, onResult }: Props) {
   const [file, setFile] = useState<File | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -30,6 +36,20 @@ export function UploadForm({ disabled, onResult }: Props) {
     }
   }
 
+  function handleDrop(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    setIsDragging(false);
+    if (disabled || isLoading) return;
+    const dropped = e.dataTransfer.files?.[0];
+    if (!dropped) return;
+    if (!isAcceptedFile(dropped)) {
+      setError(`対応していないファイル形式です。対応形式: ${ACCEPTED_EXTENSIONS.join(", ")}`);
+      return;
+    }
+    setError(null);
+    setFile(dropped);
+  }
+
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
       <h2 className="text-lg font-semibold text-slate-800">
@@ -39,15 +59,44 @@ export function UploadForm({ disabled, onResult }: Props) {
         対応形式: {ACCEPTED_EXTENSIONS.join(", ")}
       </p>
 
-      <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+      <div
+        onDragOver={(e) => {
+          e.preventDefault();
+          if (!disabled && !isLoading) setIsDragging(true);
+        }}
+        onDragLeave={() => setIsDragging(false)}
+        onDrop={handleDrop}
+        onClick={() => inputRef.current?.click()}
+        className={`mt-4 flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed px-4 py-8 text-center transition-colors ${
+          isDragging
+            ? "border-indigo-400 bg-indigo-50"
+            : "border-slate-300 bg-slate-50 hover:bg-slate-100"
+        } ${disabled || isLoading ? "cursor-not-allowed opacity-50" : ""}`}
+      >
         <input
           ref={inputRef}
           type="file"
           accept={ACCEPTED_EXTENSIONS.join(",")}
-          onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+          onChange={(e) => {
+            setError(null);
+            setFile(e.target.files?.[0] ?? null);
+          }}
           disabled={disabled || isLoading}
-          className="block w-full text-sm text-slate-600 file:mr-4 file:rounded-md file:border-0 file:bg-indigo-50 file:px-4 file:py-2 file:text-sm file:font-medium file:text-indigo-700 hover:file:bg-indigo-100"
+          className="hidden"
         />
+        <p className="text-sm text-slate-600">
+          {file ? (
+            <span className="font-medium text-indigo-700">{file.name}</span>
+          ) : (
+            <>
+              ここにファイルをドラッグ&ドロップ、または
+              <span className="text-indigo-600 underline">クリックして選択</span>
+            </>
+          )}
+        </p>
+      </div>
+
+      <div className="mt-4 flex justify-end">
         <button
           type="button"
           onClick={handleSubmit}
