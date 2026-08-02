@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   generateMinutes,
   type GenerateMinutesResponse,
@@ -56,12 +56,7 @@ export function UploadForm({ disabled, onResult }: Props) {
     }
   }
 
-  function handleDrop(e: React.DragEvent<HTMLDivElement>) {
-    e.preventDefault();
-    setIsDragging(false);
-    if (disabled || isLoading) return;
-    const dropped = e.dataTransfer.files?.[0];
-    if (!dropped) return;
+  function acceptDroppedFile(dropped: File) {
     if (!isAcceptedFile(dropped)) {
       setError(`対応していないファイル形式です。対応形式: ${ACCEPTED_EXTENSIONS.join(", ")}`);
       return;
@@ -69,6 +64,36 @@ export function UploadForm({ disabled, onResult }: Props) {
     setError(null);
     setFile(dropped);
   }
+
+  // ページ内のどこにドロップしても受け付けられるよう、window全体でドラッグ&ドロップを処理する。
+  // preventDefaultしないとブラウザがファイルを別タブで開こうとしてしまう。
+  useEffect(() => {
+    function handleWindowDragOver(e: DragEvent) {
+      e.preventDefault();
+      if (disabled || isLoading) return;
+      setIsDragging(true);
+    }
+    function handleWindowDragLeave(e: DragEvent) {
+      if (!e.relatedTarget) setIsDragging(false);
+    }
+    function handleWindowDrop(e: DragEvent) {
+      e.preventDefault();
+      setIsDragging(false);
+      if (disabled || isLoading) return;
+      const dropped = e.dataTransfer?.files?.[0];
+      if (!dropped) return;
+      acceptDroppedFile(dropped);
+    }
+
+    window.addEventListener("dragover", handleWindowDragOver);
+    window.addEventListener("dragleave", handleWindowDragLeave);
+    window.addEventListener("drop", handleWindowDrop);
+    return () => {
+      window.removeEventListener("dragover", handleWindowDragOver);
+      window.removeEventListener("dragleave", handleWindowDragLeave);
+      window.removeEventListener("drop", handleWindowDrop);
+    };
+  }, [disabled, isLoading]);
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -80,14 +105,8 @@ export function UploadForm({ disabled, onResult }: Props) {
       </p>
 
       <div
-        onDragOver={(e) => {
-          e.preventDefault();
-          if (!disabled && !isLoading) setIsDragging(true);
-        }}
-        onDragLeave={() => setIsDragging(false)}
-        onDrop={handleDrop}
         onClick={() => inputRef.current?.click()}
-        className={`mt-4 flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed px-4 py-8 text-center transition-colors ${
+        className={`mt-4 flex min-h-64 cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed px-6 py-16 text-center transition-colors ${
           isDragging
             ? "border-indigo-400 bg-indigo-50"
             : "border-slate-300 bg-slate-50 hover:bg-slate-100"
@@ -104,7 +123,7 @@ export function UploadForm({ disabled, onResult }: Props) {
           disabled={disabled || isLoading}
           className="hidden"
         />
-        <p className="text-sm text-slate-600">
+        <p className="text-base text-slate-600">
           {file ? (
             <span className="font-medium text-indigo-700">{file.name}</span>
           ) : (
