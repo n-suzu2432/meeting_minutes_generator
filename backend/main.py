@@ -5,6 +5,7 @@ import asyncio
 import json
 import os
 import tempfile
+import time
 from collections.abc import AsyncIterator
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
@@ -17,6 +18,7 @@ from core import dictionary
 from core.audio_utils import probe_duration_seconds, split_audio
 from core.extract import ExtractionError, extract_minutes
 from core.markdown import render_minutes, render_statement_log
+from core.progress import ProgressEstimator
 from core.transcribe import ChunkResult, transcribe_chunks
 
 app = FastAPI(title="議事録自動生成API")
@@ -84,27 +86,58 @@ def put_dictionary(entries: list[DictionaryEntry]) -> list[dict]:
     return cleaned
 
 
-def _progress_event(stage: str, progress: int, message: str, **extra: object) -> bytes:
-    payload = {"stage": stage, "progress": progress, "message": message, **extra}
+def _progress_event(
+    stage: str,
+    progress: int,
+    message: str,
+    *,
+    start_time: float | None = None,
+    estimator: ProgressEstimator | None = None,
+    **extra: object,
+) -> bytes:
+    payload = {
+        "stage": stage,
+        "progress": progress,
+        "message": message,
+        "elapsed_seconds": int(time.monotonic() - start_time) if start_time is not None else 0,
+        "step": estimator.step_number(stage) if estimator is not None else None,
+        "total_steps": estimator.total_steps if estimator is not None else None,
+        **extra,
+    }
     return (json.dumps(payload, ensure_ascii=False) + "\n").encode("utf-8")
 
 
-async def _wait_with_heartbeat(coro, stage: str, progress: int, message: str):
+async def _wait_with_heartbeat(
+    coro, stage: str, estimator: ProgressEstimator, message: str, start_time: float
+):
     """coroの完了を待つ間、HEARTBEAT_INTERVAL_SECONDSごとに進捗イベントをyieldする。
 
     音声分割(ffmpeg変換+無音検出)やClaude抽出など、単一の処理が長時間かかる
     可能性がある箇所で使う。無通信状態が続くとRenderなどのリバースプロキシに
     タイムアウトされるため、完了を待つ間も定期的にイベントを送って接続を維持する。
+    進捗%は、このステージの目安所要時間に対する経過時間の割合を、全体推定時間に
+    換算して算出する(実測ではなく音声の長さからの目安)。
     最後にyieldする値がcoroの結果(またはraiseされた例外)。
     """
     task = asyncio.ensure_future(coro)
-    elapsed = 0
+    stage_start = time.monotonic()
+    stage_estimate = estimator.stage_seconds(stage)
     while not task.done():
         try:
             await asyncio.wait_for(asyncio.shield(task), timeout=config.HEARTBEAT_INTERVAL_SECONDS)
         except asyncio.TimeoutError:
-            elapsed += config.HEARTBEAT_INTERVAL_SECONDS
-            yield _progress_event(stage, progress, f"{message}({elapsed}秒経過)")
+            stage_elapsed = time.monotonic() - stage_start
+            # 完了前に100%へ到達しないよう、ステージ内進捗は95%までに留める
+            stage_fraction = min(stage_elapsed / stage_estimate, 0.95) if stage_estimate else 0.95
+            pct = estimator.overall_percent(stage, stage_fraction)
+            total_elapsed = int(time.monotonic() - start_time)
+            yield _progress_event(
+                stage,
+                pct,
+                f"{message}({total_elapsed}秒経過)",
+                start_time=start_time,
+                estimator=estimator,
+            )
     yield task.result()
 
 
@@ -134,10 +167,19 @@ async def _generate_minutes_stream(tmp_path: str) -> AsyncIterator[bytes]:
             )
             return
 
-        yield _progress_event("splitting", 5, "音声を分割しています...")
+        start_time = time.monotonic()
+        estimator = ProgressEstimator(duration_seconds or config.MIN_STAGE_ESTIMATE_SECONDS)
+
+        yield _progress_event(
+            "splitting",
+            estimator.overall_percent("splitting", 0),
+            "音声を分割しています...",
+            start_time=start_time,
+            estimator=estimator,
+        )
         chunks: list = []
         async for event in _wait_with_heartbeat(
-            asyncio.to_thread(split_audio, tmp_path), "splitting", 5, "音声を分割しています"
+            asyncio.to_thread(split_audio, tmp_path), "splitting", estimator, "音声を分割しています", start_time
         ):
             if isinstance(event, bytes):
                 yield event
@@ -148,19 +190,36 @@ async def _generate_minutes_stream(tmp_path: str) -> AsyncIterator[bytes]:
             sum(len(c.audio_bytes) for c in chunks) / (64_000 / 8) / 60 * config.WHISPER_COST_PER_MINUTE
         )
 
-        yield _progress_event("transcribing", 10, f"文字起こし中 (0/{len(chunks)})")
+        yield _progress_event(
+            "transcribing",
+            estimator.overall_percent("transcribing", 0),
+            f"文字起こし中 (0/{len(chunks)})",
+            start_time=start_time,
+            estimator=estimator,
+        )
         chunk_results: list[ChunkResult] = []
         async for event in transcribe_chunks(chunks, config.OPENAI_API_KEY):
             if isinstance(event, list):
                 chunk_results = event
             else:
-                pct = 10 + int(45 * event.done / max(event.total, 1))
+                stage_fraction = event.done / max(event.total, 1)
+                pct = estimator.overall_percent("transcribing", stage_fraction)
                 yield _progress_event(
-                    "transcribing", pct, f"文字起こし中 ({event.done}/{event.total})"
+                    "transcribing",
+                    pct,
+                    f"文字起こし中 ({event.done}/{event.total})",
+                    start_time=start_time,
+                    estimator=estimator,
                 )
         failed_chunk_count = sum(1 for r in chunk_results if r.error)
 
-        yield _progress_event("dictionary", 60, "誤字辞書を適用しています...")
+        yield _progress_event(
+            "dictionary",
+            estimator.overall_percent("dictionary", 0),
+            "誤字辞書を適用しています...",
+            start_time=start_time,
+            estimator=estimator,
+        )
         dict_entries = dictionary.load_dictionary()
         aggregated_report: dict[str, dict] = {}
         for result in chunk_results:
@@ -177,21 +236,30 @@ async def _generate_minutes_stream(tmp_path: str) -> AsyncIterator[bytes]:
             segment.text for result in chunk_results for segment in result.segments
         )
 
-        yield _progress_event("extracting", 70, "Claudeで構造化抽出しています...")
+        yield _progress_event(
+            "extracting",
+            estimator.overall_percent("extracting", 0),
+            "Claudeで構造化抽出しています...",
+            start_time=start_time,
+            estimator=estimator,
+        )
         extraction_result = None
         try:
             async for event in _wait_with_heartbeat(
                 asyncio.to_thread(extract_minutes, full_transcript, config.ANTHROPIC_API_KEY),
                 "extracting",
-                70,
+                estimator,
                 "Claudeで構造化抽出しています",
+                start_time,
             ):
                 if isinstance(event, bytes):
                     yield event
                 else:
                     extraction_result = event
         except ExtractionError as exc:
-            yield _progress_event("error", 70, str(exc))
+            yield _progress_event(
+                "error", 0, str(exc), start_time=start_time, estimator=estimator
+            )
             return
 
         claude_cost_estimate_usd = (
@@ -199,7 +267,13 @@ async def _generate_minutes_stream(tmp_path: str) -> AsyncIterator[bytes]:
             + extraction_result.output_tokens * config.CLAUDE_OUTPUT_COST_PER_MTOK
         ) / 1_000_000
 
-        yield _progress_event("formatting", 95, "Markdownを整形しています...")
+        yield _progress_event(
+            "formatting",
+            estimator.overall_percent("formatting", 0),
+            "Markdownを整形しています...",
+            start_time=start_time,
+            estimator=estimator,
+        )
         statement_log_md = render_statement_log(chunk_results)
         minutes_md = render_minutes(extraction_result.data, statement_log_md)
 
@@ -212,7 +286,14 @@ async def _generate_minutes_stream(tmp_path: str) -> AsyncIterator[bytes]:
             whisper_cost_estimate_usd=whisper_cost_estimate_usd,
             claude_cost_estimate_usd=claude_cost_estimate_usd,
         )
-        yield _progress_event("done", 100, "完了しました", result=result.model_dump())
+        yield _progress_event(
+            "done",
+            100,
+            "完了しました",
+            start_time=start_time,
+            estimator=estimator,
+            result=result.model_dump(),
+        )
     except Exception as exc:  # noqa: BLE001 - ストリーム開始後の予期しない失敗もイベントとして通知する
         yield _progress_event("error", 0, f"予期しないエラーが発生しました: {exc}")
     finally:

@@ -37,6 +37,16 @@ MAX_DURATION_SECONDS = int(os.getenv("MAX_DURATION_MINUTES", 120)) * 60
 # 長時間かかる処理中に定期的に進捗イベントを送る間隔(プロキシのタイムアウト対策)
 HEARTBEAT_INTERVAL_SECONDS = int(os.getenv("HEARTBEAT_INTERVAL_SECONDS", 10))
 
+# 進捗表示: 音声の長さ(秒)から各段階の目安所要時間を見積もる際の係数。
+# 実測データではなく目安。実際の所要時間の傾向が分かってきたら調整する。
+MIN_STAGE_ESTIMATE_SECONDS = 5
+SPLIT_ESTIMATE_RATIO = 0.05
+TRANSCRIBE_ESTIMATE_RATIO = 0.35
+DICTIONARY_ESTIMATE_SECONDS = 3
+EXTRACT_ESTIMATE_RATIO = 0.04
+EXTRACT_ESTIMATE_BASE_SECONDS = 15
+FORMAT_ESTIMATE_SECONDS = 3
+
 # フロントエンド(Next.js)のオリジン。CORS許可先。
 FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "http://localhost:3000")
 

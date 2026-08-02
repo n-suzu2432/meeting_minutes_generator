@@ -50,6 +50,9 @@ export type MinutesProgressEvent = {
   stage: MinutesProgressStage;
   progress: number;
   message: string;
+  elapsed_seconds?: number;
+  step?: number | null;
+  total_steps?: number | null;
   result?: GenerateMinutesResponse;
 };
 

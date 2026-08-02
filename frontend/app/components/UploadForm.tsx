@@ -37,8 +37,21 @@ export function UploadForm({ disabled, onResult }: Props) {
   const [isLoading, setIsLoading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [progress, setProgress] = useState<MinutesProgressEvent | null>(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // 段階(stage)が切り替わってもタイマーが途切れないよう、バックエンドのイベント頻度に
+  // 依存せずフロント側で1秒ごとに経過時間を刻む。
+  useEffect(() => {
+    if (!isLoading) return;
+    const startedAt = Date.now();
+    setElapsedSeconds(0);
+    const timer = setInterval(() => {
+      setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [isLoading]);
 
   async function handleSubmit() {
     if (!file) return;
@@ -97,6 +110,14 @@ export function UploadForm({ disabled, onResult }: Props) {
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+      {isDragging && !disabled && !isLoading && (
+        <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center border-4 border-dashed border-indigo-400 bg-indigo-50/80">
+          <p className="text-xl font-semibold text-indigo-700">
+            ファイルをドロップしてアップロード
+          </p>
+        </div>
+      )}
+
       <h2 className="text-lg font-semibold text-slate-800">
         音声/動画ファイルをアップロード
       </h2>
@@ -128,7 +149,7 @@ export function UploadForm({ disabled, onResult }: Props) {
             <span className="font-medium text-indigo-700">{file.name}</span>
           ) : (
             <>
-              ここにファイルをドラッグ&ドロップ、または
+              ファイルをドラッグ&ドロップ、または
               <span className="text-indigo-600 underline">クリックして選択</span>
             </>
           )}
@@ -148,6 +169,13 @@ export function UploadForm({ disabled, onResult }: Props) {
 
       {isLoading && progress && (
         <div className="mt-4">
+          <div className="mb-1 flex items-center justify-between text-xs text-slate-400">
+            <span className="tabular-nums">
+              ステップ {progress.step ?? stageIndex(progress.stage) + 1}/
+              {progress.total_steps ?? STAGE_STEPS.length}
+            </span>
+            <span className="tabular-nums">{elapsedSeconds}秒経過</span>
+          </div>
           <div className="mb-2 flex items-center justify-between text-sm text-slate-600">
             <span>{progress.message}</span>
             <span className="font-medium tabular-nums">{progress.progress}%</span>
