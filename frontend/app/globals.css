@@ -1,20 +1,72 @@
 @import "tailwindcss";
-@plugin "@tailwindcss/typography";
 
-:root {
-  --background: #f8fafc;
-  --foreground: #1e293b;
-}
-
+/* デザイントークン: 濃紺の文字 × 白い紙面 × 蛍光ペンの黄色。
+   黄色は「大事な所に線を引く」用途(決定事項・主操作の強調)だけに使う。 */
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-ink: #14213d;
+  --color-ink-soft: #46536f;
+  --color-ink-faint: #6b7690;
+  --color-desk: #eef1f6;
+  --color-paper: #ffffff;
+  --color-line: #d8dee9;
+  --color-line-strong: #b4bdcd;
+  --color-marker: #ffe14d;
+  --color-marker-soft: #fff6c2;
+  --color-pen: #2447c9;
+  --color-ok: #14804a;
+  --color-ok-soft: #e4f4eb;
+  --color-alert: #b93227;
+  --color-alert-soft: #fcebe9;
+  --color-warn: #8a5a00;
+  --color-warn-soft: #fff1d0;
+
+  --font-sans: var(--font-zen), "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, sans-serif;
+
+  --radius-sheet: 1.25rem;
+  --shadow-sheet: 0 1px 0 rgb(20 33 61 / 0.04), 0 12px 32px -16px rgb(20 33 61 / 0.25);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+  background: var(--color-desk);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-feature-settings: "palt";
+}
+
+:focus-visible {
+  outline: 3px solid var(--color-pen);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* 蛍光ペンで引いた線。文字の下半分にだけ色を敷く。 */
+.marker {
+  background-image: linear-gradient(var(--color-marker), var(--color-marker));
+  background-repeat: no-repeat;
+  background-position: 0 88%;
+  background-size: 100% 0.42em;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.marker-draw {
+  animation: marker-draw 700ms 250ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+@keyframes marker-draw {
+  from {
+    background-size: 0% 0.42em;
+  }
+  to {
+    background-size: 100% 0.42em;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marker-draw {
+    animation: none;
+  }
+  * {
+    transition-duration: 0.01ms !important;
+  }
 }

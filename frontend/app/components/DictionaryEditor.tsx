@@ -1,20 +1,23 @@
 "use client";
 
 import { useState } from "react";
+import { ChevronIcon, CloseIcon, PlusIcon } from "@/app/components/icons";
 import { saveDictionary, type DictionaryEntry } from "@/lib/api";
 
 type Props = {
   initialEntries: DictionaryEntry[];
+  onSaved?: (entries: DictionaryEntry[]) => void;
 };
 
-export function DictionaryEditor({ initialEntries }: Props) {
+export function DictionaryEditor({ initialEntries, onSaved }: Props) {
   const initialRows = initialEntries.length > 0 ? initialEntries : [{ wrong: "", correct: "" }];
   const [entries, setEntries] = useState<DictionaryEntry[]>(initialRows);
   const [lastSavedEntries, setLastSavedEntries] = useState<DictionaryEntry[]>(initialRows);
   const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+  const [message, setMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
 
   const isDirty = JSON.stringify(entries) !== JSON.stringify(lastSavedEntries);
+  const savedCount = lastSavedEntries.filter((entry) => entry.wrong.trim().length > 0).length;
 
   function updateEntry(index: number, field: keyof DictionaryEntry, value: string) {
     setMessage(null);
@@ -42,80 +45,110 @@ export function DictionaryEditor({ initialEntries }: Props) {
       const savedRows = saved.length > 0 ? saved : [{ wrong: "", correct: "" }];
       setEntries(savedRows);
       setLastSavedEntries(savedRows);
-      setMessage("辞書を保存しました。");
+      onSaved?.(saved);
+      setMessage({ kind: "ok", text: "保存しました。次に作る議事録から反映されます。" });
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : "保存に失敗しました。");
+      setMessage({
+        kind: "error",
+        text: err instanceof Error ? err.message : "保存できませんでした。もう一度お試しください。",
+      });
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <details className="group rounded-xl border border-slate-200 bg-white p-4 shadow-sm open:shadow-md">
-      <summary className="cursor-pointer list-none font-medium text-slate-800">
-        <span className="mr-2 inline-block transition-transform group-open:rotate-90">
-          ▶
+    <details className="group rounded-sheet border border-line bg-paper">
+      <summary className="flex cursor-pointer list-none flex-wrap items-center gap-x-3 gap-y-1 p-5 sm:px-6 [&::-webkit-details-marker]:hidden">
+        <ChevronIcon className="size-5 shrink-0 transition-transform group-open:rotate-90" />
+        <span className="font-bold">社名や商品名を正しい表記にする</span>
+        <span className="rounded-full bg-desk px-2.5 py-0.5 text-xs font-medium text-ink-soft">
+          任意
         </span>
-        誤字置換辞書(社名・商品名)
-        {isDirty && (
-          <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-normal text-amber-800">
-            未保存の変更あり
+        {isDirty ? (
+          <span className="rounded-full bg-warn-soft px-2.5 py-0.5 text-xs font-bold text-warn">
+            まだ保存していません
           </span>
+        ) : (
+          savedCount > 0 && (
+            <span className="text-sm text-ink-faint tabular-nums">{savedCount}件 登録済み</span>
+          )
         )}
       </summary>
-      <p className="mt-2 text-sm text-slate-500">
-        文字起こし結果に含まれる誤表記を、正しい表記に一括置換します。
-      </p>
 
-      <div className="mt-4 space-y-2">
-        {entries.map((entry, index) => (
-          <div key={index} className="flex gap-2">
-            <input
-              className="flex-1 rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-indigo-400 focus:outline-none"
-              placeholder="誤(文字起こしの表記)"
-              value={entry.wrong}
-              onChange={(e) => updateEntry(index, "wrong", e.target.value)}
-            />
-            <input
-              className="flex-1 rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-indigo-400 focus:outline-none"
-              placeholder="正(正しい表記)"
-              value={entry.correct}
-              onChange={(e) => updateEntry(index, "correct", e.target.value)}
-            />
-            <button
-              type="button"
-              onClick={() => removeRow(index)}
-              className="rounded-md px-2 text-sm text-slate-400 hover:text-red-600"
-              aria-label="この行を削除"
-            >
-              ×
-            </button>
+      <div className="border-t border-line p-5 sm:px-6">
+        <p className="max-w-[40em] text-sm leading-6 text-ink-soft">
+          聞き間違えられやすい言葉を登録しておくと、議事録の中で自動的に直します。
+          <span className="block">例:「アクメ」→「ACME」</span>
+        </p>
+
+        <div className="mt-4 space-y-2">
+          <div aria-hidden className="hidden gap-2 text-xs font-bold text-ink-faint sm:flex">
+            <span className="flex-1">間違って書かれる表記</span>
+            <span className="w-5" />
+            <span className="flex-1">正しい表記</span>
+            <span className="w-9" />
           </div>
-        ))}
-      </div>
+          {entries.map((entry, index) => (
+            <div key={index} className="flex items-center gap-2">
+              <input
+                className="min-w-0 flex-1 rounded-lg border-2 border-line bg-paper px-3 py-2 text-sm placeholder:text-ink-faint focus:border-ink focus:outline-none"
+                placeholder="例: アクメ"
+                aria-label={`${index + 1}行目: 間違って書かれる表記`}
+                value={entry.wrong}
+                onChange={(e) => updateEntry(index, "wrong", e.target.value)}
+              />
+              <span aria-hidden className="w-5 text-center text-ink-faint">
+                →
+              </span>
+              <input
+                className="min-w-0 flex-1 rounded-lg border-2 border-line bg-paper px-3 py-2 text-sm placeholder:text-ink-faint focus:border-ink focus:outline-none"
+                placeholder="例: ACME"
+                aria-label={`${index + 1}行目: 正しい表記`}
+                value={entry.correct}
+                onChange={(e) => updateEntry(index, "correct", e.target.value)}
+              />
+              <button
+                type="button"
+                onClick={() => removeRow(index)}
+                className="flex size-9 shrink-0 items-center justify-center rounded-full text-ink-faint hover:bg-alert-soft hover:text-alert"
+                aria-label={`${index + 1}行目を削除`}
+              >
+                <CloseIcon className="size-4" />
+              </button>
+            </div>
+          ))}
+        </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          onClick={addRow}
-          className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
-        >
-          + 行を追加
-        </button>
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={saving}
-          className="rounded-md bg-slate-800 px-3 py-1.5 text-sm text-white hover:bg-slate-700 disabled:opacity-50"
-        >
-          {saving ? "保存中..." : "辞書を保存"}
-        </button>
-        {message && <span className="text-sm text-slate-500">{message}</span>}
-        {!message && isDirty && (
-          <span className="text-sm text-amber-700">
-            変更が保存されていません。「辞書を保存」を押すまで反映されません。
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={addRow}
+            className="flex items-center gap-1.5 rounded-full border-2 border-line-strong px-4 py-2 text-sm font-bold text-ink-soft hover:border-ink hover:text-ink"
+          >
+            <PlusIcon className="size-4" />
+            行を追加
+          </button>
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={saving || !isDirty}
+            className="rounded-full bg-ink px-5 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-line-strong"
+          >
+            {saving ? "保存中…" : "表記を保存"}
+          </button>
+          <span aria-live="polite" className="text-sm">
+            {message ? (
+              <span className={message.kind === "ok" ? "text-ok" : "text-alert"}>
+                {message.text}
+              </span>
+            ) : (
+              isDirty && (
+                <span className="text-warn">「表記を保存」を押すまで反映されません。</span>
+              )
+            )}
           </span>
-        )}
+        </div>
       </div>
     </details>
   );

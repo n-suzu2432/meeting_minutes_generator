@@ -1,5 +1,6 @@
 "use client";
 
+import { AlertIcon } from "@/app/components/icons";
 import type { HealthStatus } from "@/lib/api";
 
 export function HealthBanner({ health }: { health: HealthStatus | null }) {
@@ -13,13 +14,22 @@ export function HealthBanner({ health }: { health: HealthStatus | null }) {
   if (problems.length === 0) return null;
 
   return (
-    <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
-      <p className="font-medium">バックエンドの設定を確認してください:</p>
-      <ul className="mt-1 list-disc pl-5">
-        {problems.map((problem) => (
-          <li key={problem}>{problem}</li>
-        ))}
-      </ul>
+    <div
+      role="alert"
+      className="flex items-start gap-3 rounded-xl bg-alert-soft px-4 py-3 text-sm text-alert"
+    >
+      <AlertIcon className="mt-0.5 size-5 shrink-0" />
+      <div>
+        <p className="font-bold">
+          サーバーの設定が終わっていないため、まだ議事録を作れません。
+        </p>
+        <p className="mt-1">管理者の方は次の項目を確認してください。</p>
+        <ul className="mt-1 list-disc pl-5">
+          {problems.map((problem) => (
+            <li key={problem}>{problem}</li>
+          ))}
+        </ul>
+      </div>
     </div>
   );
 }

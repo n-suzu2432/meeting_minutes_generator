@@ -1,26 +1,18 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import {
-  generateMinutes,
-  type GenerateMinutesResponse,
-  type MinutesProgressEvent,
-  type MinutesProgressStage,
-} from "@/lib/api";
+import { AlertIcon, AudioFileIcon, UploadIcon } from "@/app/components/icons";
 
 const ACCEPTED_EXTENSIONS = [".mp3", ".mp4", ".wav", ".m4a", ".webm"];
-
-const STAGE_STEPS: { key: MinutesProgressStage; label: string }[] = [
-  { key: "splitting", label: "音声分割" },
-  { key: "transcribing", label: "文字起こし" },
-  { key: "dictionary", label: "辞書置換" },
-  { key: "extracting", label: "AI抽出" },
-  { key: "formatting", label: "整形" },
-];
+const ACCEPTED_LABEL = ACCEPTED_EXTENSIONS.map((ext) => ext.slice(1)).join(" / ");
 
 type Props = {
+  file: File | null;
   disabled?: boolean;
-  onResult: (result: GenerateMinutesResponse) => void;
+  error: string | null;
+  onFileChange: (file: File | null) => void;
+  onError: (message: string | null) => void;
+  onSubmit: () => void;
 };
 
 function isAcceptedFile(file: File): boolean {
@@ -28,54 +20,22 @@ function isAcceptedFile(file: File): boolean {
   return ACCEPTED_EXTENSIONS.some((ext) => name.endsWith(ext));
 }
 
-function stageIndex(stage: MinutesProgressStage): number {
-  return STAGE_STEPS.findIndex((step) => step.key === stage);
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export function UploadForm({ disabled, onResult }: Props) {
-  const [file, setFile] = useState<File | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+export function UploadForm({ file, disabled, error, onFileChange, onError, onSubmit }: Props) {
   const [isDragging, setIsDragging] = useState(false);
-  const [progress, setProgress] = useState<MinutesProgressEvent | null>(null);
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // 段階(stage)が切り替わってもタイマーが途切れないよう、バックエンドのイベント頻度に
-  // 依存せずフロント側で1秒ごとに経過時間を刻む。
-  useEffect(() => {
-    if (!isLoading) return;
-    const startedAt = Date.now();
-    setElapsedSeconds(0);
-    const timer = setInterval(() => {
-      setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000));
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [isLoading]);
-
-  async function handleSubmit() {
-    if (!file) return;
-    setIsLoading(true);
-    setError(null);
-    setProgress(null);
-    try {
-      const result = await generateMinutes(file, setProgress);
-      onResult(result);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "議事録の生成に失敗しました。");
-    } finally {
-      setIsLoading(false);
-      setProgress(null);
-    }
-  }
-
-  function acceptDroppedFile(dropped: File) {
-    if (!isAcceptedFile(dropped)) {
-      setError(`対応していないファイル形式です。対応形式: ${ACCEPTED_EXTENSIONS.join(", ")}`);
+  function acceptFile(candidate: File) {
+    if (!isAcceptedFile(candidate)) {
+      onError(`この形式は使えません。${ACCEPTED_LABEL} のいずれかを選んでください。`);
       return;
     }
-    setError(null);
-    setFile(dropped);
+    onError(null);
+    onFileChange(candidate);
   }
 
   // ページ内のどこにドロップしても受け付けられるよう、window全体でドラッグ&ドロップを処理する。
@@ -83,7 +43,7 @@ export function UploadForm({ disabled, onResult }: Props) {
   useEffect(() => {
     function handleWindowDragOver(e: DragEvent) {
       e.preventDefault();
-      if (disabled || isLoading) return;
+      if (disabled) return;
       setIsDragging(true);
     }
     function handleWindowDragLeave(e: DragEvent) {
@@ -92,10 +52,10 @@ export function UploadForm({ disabled, onResult }: Props) {
     function handleWindowDrop(e: DragEvent) {
       e.preventDefault();
       setIsDragging(false);
-      if (disabled || isLoading) return;
+      if (disabled) return;
       const dropped = e.dataTransfer?.files?.[0];
       if (!dropped) return;
-      acceptDroppedFile(dropped);
+      acceptFile(dropped);
     }
 
     window.addEventListener("dragover", handleWindowDragOver);
@@ -106,120 +66,110 @@ export function UploadForm({ disabled, onResult }: Props) {
       window.removeEventListener("dragleave", handleWindowDragLeave);
       window.removeEventListener("drop", handleWindowDrop);
     };
-  }, [disabled, isLoading]);
+    // acceptFileは毎レンダーで作り直されるが、参照するpropsはdisabledと同じタイミングでしか変わらない
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [disabled]);
+
+  function openPicker() {
+    if (!disabled) inputRef.current?.click();
+  }
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-      {isDragging && !disabled && !isLoading && (
-        <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center border-4 border-dashed border-indigo-400 bg-indigo-50/80">
-          <p className="text-xl font-semibold text-indigo-700">
-            ファイルをドロップしてアップロード
-          </p>
+    <section aria-labelledby="upload-heading">
+      {isDragging && !disabled && (
+        <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-ink/85 p-6">
+          <div className="flex flex-col items-center gap-4 rounded-sheet border-4 border-dashed border-marker px-10 py-12 text-center text-white">
+            <UploadIcon className="size-12 text-marker" />
+            <p className="text-2xl font-bold">ここで離すと、このファイルを使います</p>
+          </div>
         </div>
       )}
 
-      <h2 className="text-lg font-semibold text-slate-800">
-        音声/動画ファイルをアップロード
+      <h2 id="upload-heading" className="sr-only">
+        ファイルを選ぶ
       </h2>
-      <p className="mt-1 text-sm text-slate-500">
-        対応形式: {ACCEPTED_EXTENSIONS.join(", ")}
-      </p>
 
-      <div
-        onClick={() => inputRef.current?.click()}
-        className={`mt-4 flex min-h-64 cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed px-6 py-16 text-center transition-colors ${
-          isDragging
-            ? "border-indigo-400 bg-indigo-50"
-            : "border-slate-300 bg-slate-50 hover:bg-slate-100"
-        } ${disabled || isLoading ? "cursor-not-allowed opacity-50" : ""}`}
-      >
-        <input
-          ref={inputRef}
-          type="file"
-          accept={ACCEPTED_EXTENSIONS.join(",")}
-          onChange={(e) => {
-            setError(null);
-            setFile(e.target.files?.[0] ?? null);
-          }}
-          disabled={disabled || isLoading}
-          className="hidden"
-        />
-        <p className="text-base text-slate-600">
-          {file ? (
-            <span className="font-medium text-indigo-700">{file.name}</span>
-          ) : (
-            <>
-              ファイルをドラッグ&ドロップ、または
-              <span className="text-indigo-600 underline">クリックして選択</span>
-            </>
-          )}
-        </p>
-      </div>
+      <input
+        ref={inputRef}
+        type="file"
+        accept={ACCEPTED_EXTENSIONS.join(",")}
+        onChange={(e) => {
+          const picked = e.target.files?.[0];
+          if (picked) acceptFile(picked);
+          // 同じファイルを選び直してもchangeが発火するようにする
+          e.target.value = "";
+        }}
+        disabled={disabled}
+        className="hidden"
+      />
 
-      <div className="mt-4 flex justify-end">
+      {file ? (
+        <div className="flex flex-wrap items-center gap-4 rounded-sheet border-2 border-ink bg-paper p-5 sm:p-6">
+          <span className="flex size-14 shrink-0 items-center justify-center rounded-xl bg-marker text-ink">
+            <AudioFileIcon className="size-7" />
+          </span>
+          <div className="min-w-0 flex-1 basis-48">
+            <p className="text-sm text-ink-soft">このファイルから議事録を作ります</p>
+            <p className="mt-0.5 truncate text-lg font-bold" title={file.name}>
+              {file.name}
+            </p>
+            <p className="text-sm text-ink-faint tabular-nums">{formatFileSize(file.size)}</p>
+          </div>
+          <button
+            type="button"
+            onClick={openPicker}
+            disabled={disabled}
+            className="w-full rounded-full border-2 border-line-strong px-4 py-2 text-sm font-bold text-ink-soft hover:border-ink hover:text-ink disabled:opacity-50 sm:w-auto"
+          >
+            別のファイルにする
+          </button>
+        </div>
+      ) : (
         <button
           type="button"
-          onClick={handleSubmit}
-          disabled={disabled || isLoading || !file}
-          className="shrink-0 rounded-md bg-indigo-600 px-5 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
+          onClick={openPicker}
+          disabled={disabled}
+          className="group flex min-h-60 w-full flex-col items-center justify-center gap-3 rounded-sheet border-2 border-dashed border-line-strong bg-paper px-6 py-10 text-center transition-colors hover:border-ink hover:bg-marker-soft disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:border-line-strong disabled:hover:bg-paper"
         >
-          {isLoading ? "議事録を作成中..." : "議事録を作成する"}
+          <span className="flex size-16 items-center justify-center rounded-full bg-desk text-ink transition-colors group-hover:bg-marker group-disabled:bg-desk">
+            <UploadIcon className="size-8" />
+          </span>
+          <span className="text-xl font-bold">
+            <span className="inline-block">会議の録音・録画ファイルを、</span>
+            <span className="inline-block">ここにドロップ</span>
+          </span>
+          <span className="rounded-full bg-ink px-5 py-2 text-sm font-bold text-white">
+            パソコンから選ぶ
+          </span>
+          <span className="text-sm text-ink-faint">使える形式: {ACCEPTED_LABEL}</span>
         </button>
-      </div>
-
-      {isLoading && progress && (
-        <div className="mt-4">
-          <div className="mb-1 flex items-center justify-between text-xs text-slate-400">
-            <span className="tabular-nums">
-              ステップ {progress.step ?? stageIndex(progress.stage) + 1}/
-              {progress.total_steps ?? STAGE_STEPS.length}
-            </span>
-            <span className="tabular-nums">{elapsedSeconds}秒経過</span>
-          </div>
-          <div className="mb-2 flex items-center justify-between text-sm text-slate-600">
-            <span>{progress.message}</span>
-            <span className="font-medium tabular-nums">{progress.progress}%</span>
-          </div>
-          <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200">
-            <div
-              className="h-full rounded-full bg-indigo-600 transition-all duration-300"
-              style={{ width: `${progress.progress}%` }}
-            />
-          </div>
-          <ol className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs">
-            {STAGE_STEPS.map((step) => {
-              const currentIdx = stageIndex(progress.stage);
-              const stepIdx = stageIndex(step.key);
-              const state =
-                stepIdx < currentIdx ? "done" : stepIdx === currentIdx ? "current" : "upcoming";
-              return (
-                <li
-                  key={step.key}
-                  className={
-                    state === "current"
-                      ? "font-semibold text-indigo-700"
-                      : state === "done"
-                        ? "text-emerald-600"
-                        : "text-slate-400"
-                  }
-                >
-                  {state === "done" ? "✓ " : ""}
-                  {step.label}
-                </li>
-              );
-            })}
-          </ol>
-          <p className="mt-2 text-xs text-slate-400">
-            1時間程度の音声でも数分かかる場合があります。
-          </p>
-        </div>
       )}
 
       {error && (
-        <p className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
-          {error}
+        <p
+          role="alert"
+          className="mt-4 flex items-start gap-2 rounded-xl bg-alert-soft px-4 py-3 text-sm font-medium text-alert"
+        >
+          <AlertIcon className="mt-0.5 size-4 shrink-0" />
+          <span>{error}</span>
         </p>
       )}
-    </div>
+
+      <div className="mt-6 flex flex-col items-center gap-2">
+        <button
+          type="button"
+          onClick={onSubmit}
+          disabled={disabled || !file}
+          className="w-full rounded-full bg-ink px-8 py-4 text-lg font-bold text-white shadow-sheet transition-transform hover:-translate-y-0.5 disabled:translate-y-0 disabled:cursor-not-allowed disabled:bg-line-strong disabled:shadow-none sm:w-auto sm:min-w-80"
+        >
+          議事録を作成する
+        </button>
+        <p className="text-sm text-ink-faint">
+          {file
+            ? "1時間の録音で、数分ほどかかります。"
+            : "ファイルを選ぶと、ボタンが押せるようになります。"}
+        </p>
+      </div>
+    </section>
   );
 }
