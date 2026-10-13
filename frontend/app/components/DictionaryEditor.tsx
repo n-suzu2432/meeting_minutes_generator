@@ -79,7 +79,7 @@ export function DictionaryEditor({ initialEntries, onSaved }: Props) {
       <div className="border-t border-line p-5 sm:px-6">
         <p className="max-w-[40em] text-sm leading-6 text-ink-soft">
           聞き間違えられやすい言葉を登録しておくと、議事録の中で自動的に直します。
-          <span className="block">例:「アクメ」→「ACME」</span>
+          <span className="block">例:「ケーピーアイ」→「KPI」</span>
         </p>
 
         <div className="mt-4 space-y-2">
@@ -93,7 +93,7 @@ export function DictionaryEditor({ initialEntries, onSaved }: Props) {
             <div key={index} className="flex items-center gap-2">
               <input
                 className="min-w-0 flex-1 rounded-lg border-2 border-line bg-paper px-3 py-2 text-sm placeholder:text-ink-faint focus:border-ink focus:outline-none"
-                placeholder="例: アクメ"
+                placeholder="例: ケーピーアイ"
                 aria-label={`${index + 1}行目: 間違って書かれる表記`}
                 value={entry.wrong}
                 onChange={(e) => updateEntry(index, "wrong", e.target.value)}
@@ -103,7 +103,7 @@ export function DictionaryEditor({ initialEntries, onSaved }: Props) {
               </span>
               <input
                 className="min-w-0 flex-1 rounded-lg border-2 border-line bg-paper px-3 py-2 text-sm placeholder:text-ink-faint focus:border-ink focus:outline-none"
-                placeholder="例: ACME"
+                placeholder="例: KPI"
                 aria-label={`${index + 1}行目: 正しい表記`}
                 value={entry.correct}
                 onChange={(e) => updateEntry(index, "correct", e.target.value)}

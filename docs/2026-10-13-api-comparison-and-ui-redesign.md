@@ -1,4 +1,4 @@
-# 2026-10-13 文字起こし・要約APIの比較調査 / フロントエンドのUI刷新
+# 2026-10-13 文字起こし・要約APIの比較調査 / フロントエンドのUI刷新 / サーバーの置き場所の比較資料
 
 ## 1. 文字起こし・要約APIの比較調査(コード変更なし)
 
@@ -63,6 +63,47 @@
 - 開発時に出るハイドレーション警告は、ブラウザ拡張が `body` に付ける `cz-shortcut-listen` 属性によるもので、アプリ側の問題ではない。
 - `react-markdown` と `@tailwindcss/typography` が未使用の依存として残っている。
 
+## 3. バックエンドの置き場所の比較資料(HTML)
+
+### 背景
+バックエンドの置き場所を Render 以外も含めて検討したい、クライアントに提出する場合はどこがよいか、という相談。次回のセッションでマサさんに相談するための資料を HTML で作ってほしいと依頼された。
+
+### 実装
+- `docs/2026-10-13-server-options-comparison.html` を新規作成。1ファイル完結(外部読み込みなし、印刷用スタイルつき)。
+- 内容: 相談したいこと5点、このツールがサーバーに求める条件、8つの置き場所の一覧表(Render 無料 / Fly.io / Railway / Cloud Run / Cloudflare Containers / Vercel 一本化 / Cloudflare 一本化 / 自分のPC)、それぞれのメリット・デメリット・費用、使い方ごとの候補、クライアント提出前に決めること、未確認事項、参照した公式ページ。
+- 料金と仕様は 2026-10-13 に各社の公式ページで確認した値。円換算は1ドル=158.5円。
+- ローカルの簡易サーバーで開き、Chrome で表示崩れがないことを目視確認した。
+
+### 意思決定
+- 調査で分かった主な事実: Render は日本リージョンなし・無料プランは再起動でファイルが消える(辞書が残らない)。Cloud Run は HTTP/1 のアップロードが32MBまで。Vercel の無料プランは非商用のみで、関数のリクエストは4.5MBまで。Cloudflare Workers は100MBまで送れるがメモリ128MB。Hugging Face Spaces(Docker は PRO 必須)と Koyeb(無料のサーバー枠なし、月29ドル〜)は候補から外した。
+- 資料では結論を1つに絞らず、使い方別(自分用 / デモ / 継続利用 / 一本化)に候補を分けた。相談用の資料であり、決めるのはセッション後のため。
+- 確認できなかった数字(Render 有料プランの月額、Cloud Run の無料枠、Cloudflare 無料プランの商用可否など)は「未確認」の節にまとめ、本文に推測の数字を混ぜなかった。
+- 32MB 制限の回避策として「ブラウザで音声だけ取り出して圧縮して送る」(ffmpeg.wasm、モノラル32kbpsで120分が約29MB)案を説明した。未実装。
+
+### 残課題
+- 置き場所は未決定。マサさんへの相談後に決める。
+- どのサービスにも実デプロイしておらず、動作・速度・メモリは未検証。
+- クライアント提出時の課題(ログインなし、費用の名義、音声の外部送信の合意、辞書の保存先)は未対応。
+- ブラウザでの音声抽出は未実装。
+
+## 4. 用語辞書の入力例の差し替え
+
+### 背景
+用語辞書の説明と入力欄の例が「アクメ」→「ACME」で、架空の社名のため何を登録する欄なのかが伝わりにくかった。別の例に変えてほしいと依頼された。
+
+### 実装
+- `frontend/app/components/DictionaryEditor.tsx` の例を3箇所変更。
+  - 説明文: `例:「アクメ」→「ACME」` → `例:「ケーピーアイ」→「KPI」`
+  - 読みの入力欄の placeholder: `例: アクメ` → `例: ケーピーアイ`
+  - 表記の入力欄の placeholder: `例: ACME` → `例: KPI`
+
+### 意思決定
+- 「ケーピーアイ」→「KPI」を採用。打ち合わせで実際によく出る言葉で、文字起こしがカタカナになりやすく、辞書で直したい場面が想像しやすいため。
+- 具体的な指定はなかったので、こちらで選んだ案。実在の社名・製品名は例として使わなかった(特定の会社を連想させるため)。
+
+### 残課題
+- ブラウザでの表示は未確認(文言の置き換えのみ)。
+
 ## 変更ファイル一覧
 
 **新規作成**
@@ -72,6 +113,7 @@
 - `frontend/public/illustrations/hero.webp`
 - `frontend/public/illustrations/working.webp`
 - `docs/2026-10-13-api-comparison-and-ui-redesign.md`
+- `docs/2026-10-13-server-options-comparison.html`
 
 **編集**
 - `frontend/app/globals.css`(デザイントークン、蛍光ペン表現)
@@ -79,5 +121,5 @@
 - `frontend/app/page.tsx`(3段階の画面切り替え、状態の集約)
 - `frontend/app/components/UploadForm.tsx`(ファイル選択専用に作り直し)
 - `frontend/app/components/MinutesResult.tsx`(構造化表示、保存バー)
-- `frontend/app/components/DictionaryEditor.tsx`(文言・見た目、`onSaved`)
+- `frontend/app/components/DictionaryEditor.tsx`(文言・見た目、`onSaved`、入力例を「ケーピーアイ」→「KPI」に変更)
 - `frontend/app/components/HealthBanner.tsx`(文言・見た目)

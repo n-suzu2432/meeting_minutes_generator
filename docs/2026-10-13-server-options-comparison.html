@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>自動議事録ツール バックエンドの置き場所 比較</title>
+<style>
+  :root {
+    --ink: #14213d;
+    --ink-soft: #46536f;
+    --ink-faint: #6b7690;
+    --desk: #eef1f6;
+    --paper: #ffffff;
+    --line: #d8dee9;
+    --marker: #ffe14d;
+    --marker-soft: #fff6c2;
+    --ok: #14804a;
+    --ok-soft: #e4f4eb;
+    --alert: #b93227;
+    --alert-soft: #fcebe9;
+    --warn: #8a5a00;
+    --warn-soft: #fff1d0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--desk);
+    color: var(--ink);
+    font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", sans-serif;
+    font-size: 16px;
+    line-height: 1.8;
+  }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 40px 20px 80px; }
+  h1 { font-size: 30px; line-height: 1.35; margin: 0 0 8px; font-weight: 900; }
+  h2 { font-size: 21px; margin: 56px 0 16px; font-weight: 900; }
+  h3 { font-size: 18px; margin: 0 0 4px; font-weight: 900; }
+  p { margin: 0 0 12px; }
+  .marker { background: linear-gradient(transparent 58%, var(--marker) 58%); }
+  .lead { color: var(--ink-soft); max-width: 44em; }
+  .meta { color: var(--ink-faint); font-size: 14px; margin-top: 12px; }
+  .sheet {
+    background: var(--paper);
+    border-radius: 16px;
+    padding: 24px 28px;
+    box-shadow: 0 12px 32px -18px rgb(20 33 61 / 0.3);
+  }
+  ul { margin: 0; padding-left: 1.3em; }
+  li { margin-bottom: 4px; }
+  .conclusion { border: 2px solid var(--ink); }
+  .conclusion ol { margin: 0; padding-left: 1.4em; }
+  .conclusion li { margin-bottom: 10px; }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; min-width: 860px; font-size: 14.5px; }
+  th, td { text-align: left; vertical-align: top; padding: 12px 12px; border-bottom: 1px solid var(--line); }
+  thead th { background: var(--ink); color: #fff; font-weight: 700; white-space: nowrap; }
+  thead th:first-child { border-radius: 10px 0 0 0; }
+  thead th:last-child { border-radius: 0 10px 0 0; }
+  tbody th { font-weight: 900; white-space: nowrap; }
+  tbody tr:last-child td, tbody tr:last-child th { border-bottom: 0; }
+  .tag { display: inline-block; border-radius: 999px; padding: 1px 10px; font-size: 12.5px; font-weight: 700; white-space: nowrap; }
+  .tag.none { background: var(--ok-soft); color: var(--ok); }
+  .tag.small { background: var(--warn-soft); color: var(--warn); }
+  .tag.big { background: var(--alert-soft); color: var(--alert); }
+  .cards { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+  .card { background: var(--paper); border-radius: 16px; padding: 22px 24px; border: 1px solid var(--line); }
+  .card .cost { font-weight: 900; font-size: 17px; margin: 6px 0 12px; }
+  .card .cost small { font-weight: 400; color: var(--ink-faint); font-size: 13px; }
+  .card h4 { margin: 12px 0 4px; font-size: 14px; }
+  .card h4.good { color: var(--ok); }
+  .card h4.bad { color: var(--alert); }
+  .card ul { font-size: 14.5px; line-height: 1.7; }
+  .group-title { font-size: 15px; color: var(--ink-soft); font-weight: 700; margin: 28px 0 10px; }
+  .questions li { margin-bottom: 12px; }
+  .note { font-size: 14px; color: var(--ink-soft); }
+  .unverified { background: var(--warn-soft); border-radius: 12px; padding: 16px 20px; font-size: 14.5px; }
+  .sources { font-size: 13.5px; color: var(--ink-soft); }
+  .sources a { color: #2447c9; word-break: break-all; }
+  @media print {
+    body { background: #fff; font-size: 12px; }
+    .wrap { padding: 0; }
+    .sheet, .card { box-shadow: none; border: 1px solid var(--line); break-inside: avoid; }
+    h2 { margin-top: 28px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1><span class="marker">バックエンドの置き場所</span>を、どこにするか</h1>
+  <p class="lead">自動議事録ツール(会議の録音・録画から議事録を作る)のバックエンドを、どのサービスに置くのがよいかを比べた資料です。自分用に使う場合と、クライアントに提出する場合の両方を想定しています。</p>
+  <p class="meta">料金と仕様の確認日: 2026年10月13日(各社の公式ページ) / 円換算: 1ドル=158.5円</p>
+
+  <h2>相談したいこと</h2>
+  <div class="sheet conclusion">
+    <ol>
+      <li><strong>クライアントに提出する場合、どこに置くのが一般的か。</strong>今の自分の案は「今のコードのまま Fly.io(東京)」か「Google Cloud Run(東京)」です。</li>
+      <li><strong>サーバーと API キーの名義は、自分とクライアントのどちらにすべきか。</strong>自分名義だと利用料が自分に請求され続けます。</li>
+      <li><strong>書き直して1か所にまとめる(Vercel または Cloudflare)価値はあるか。</strong>管理は楽になりますが、Python のバックエンドを TypeScript で作り直す規模です。</li>
+      <li><strong>ログインがないまま提出してよいか。</strong>今は URL を知っていれば誰でも使えて、サーバーの API キーの料金がかかります。</li>
+      <li><strong>会議の音声を外部の AI に送ることを、クライアントにどう説明・合意するか。</strong></li>
+    </ol>
+  </div>
+
+  <h2>このツールがサーバーに求める条件</h2>
+  <div class="sheet">
+    <ul>
+      <li><strong>ffmpeg が必要</strong>: 音声の変換と分割に使うため、Docker で動かせるサービスが向いています。</li>
+      <li><strong>処理が数分かかる</strong>: 1時間の録音で数分。途中で接続を切られないことが必要です。</li>
+      <li><strong>大きなファイルを受け取る</strong>: 今の上限は200MB・120分です。会議の録画(mp4)は1時間で100〜400MB程度になります。</li>
+      <li><strong>使う頻度は低い</strong>: 月に数本〜数十本。使っていない間は止まって課金されない方式が合います。</li>
+      <li><strong>辞書を保存している</strong>: 誤字置換の辞書をサーバー内のファイルに保存しています。再起動でファイルが消えるサービスでは、保存先の変更が必要です。</li>
+    </ul>
+    <p class="note" style="margin-top:12px">現状: フロントエンドは Vercel、バックエンドは Render に置く方針で設定ファイル(render.yaml)まで用意済み。実際のデプロイはまだしていません。</p>
+  </div>
+
+  <h2>一覧で比べる</h2>
+  <div class="sheet scroll">
+    <table>
+      <thead>
+        <tr>
+          <th>置き場所</th>
+          <th>月額の目安</th>
+          <th>コードの改修</th>
+          <th>日本に置けるか</th>
+          <th>1回に送れるサイズ</th>
+          <th>いちばんの弱点</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <th>Render(無料)</th>
+          <td>0円</td>
+          <td><span class="tag none">なし</span></td>
+          <td>不可(最寄りはシンガポール)</td>
+          <td>今の上限のまま</td>
+          <td>15分で停止し、起動に約1分。メモリ512MB。ファイルが再起動で消える</td>
+        </tr>
+        <tr>
+          <th>Fly.io</th>
+          <td>常時起動で約1,400円<br>自動停止なら数十円程度(試算)</td>
+          <td><span class="tag none">ほぼなし</span></td>
+          <td>可(東京)</td>
+          <td>今の上限のまま</td>
+          <td>無料枠がない。カード登録が必要</td>
+        </tr>
+        <tr>
+          <th>Railway</th>
+          <td>約790円(5ドル固定、利用料5ドル分込み)</td>
+          <td><span class="tag none">なし</span></td>
+          <td>未確認</td>
+          <td>今の上限のまま</td>
+          <td>使わない月も固定費がかかる</td>
+        </tr>
+        <tr>
+          <th>Google Cloud Run</th>
+          <td>ほぼ0円の見込み(無料枠の数字は未確認)</td>
+          <td><span class="tag small">中</span></td>
+          <td>可(東京)</td>
+          <td>32MB</td>
+          <td>32MB制限のため、アップロード方法の作り替えが必要。初期設定が重い</td>
+        </tr>
+        <tr>
+          <th>Cloudflare Containers</th>
+          <td>約790円(5ドル固定)</td>
+          <td><span class="tag small">小</span></td>
+          <td>未確認</td>
+          <td>100MB</td>
+          <td>中継用のプログラムが必要。安い構成は CPU が弱い</td>
+        </tr>
+        <tr>
+          <th>Vercel に一本化</th>
+          <td>自分用は0円<br>クライアント利用は約3,200円(20ドル)</td>
+          <td><span class="tag big">大(書き直し)</span></td>
+          <td>可(設定で変更)</td>
+          <td>4.5MB</td>
+          <td>書き直しが大きい。無料プランは非商用のみ</td>
+        </tr>
+        <tr>
+          <th>Cloudflare に一本化</th>
+          <td>約790円(5ドル)が現実的</td>
+          <td><span class="tag big">大(書き直し)</span></td>
+          <td>自動配置</td>
+          <td>100MB</td>
+          <td>書き直しが大きい。メモリ128MB。Next.js を動かすのに追加の仕組みが要る</td>
+        </tr>
+        <tr>
+          <th>自分のパソコン</th>
+          <td>0円</td>
+          <td><span class="tag none">なし</span></td>
+          <td>—</td>
+          <td>今の上限のまま</td>
+          <td>自分しか使えない。クライアントには渡せない</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="note" style="margin-top:10px">「今の上限のまま」は、アプリ側の設定(200MB)でそのまま動かせるという意味です。API の利用料(文字起こしと要約)は別で、Groq + Claude Haiku 5.5 に切り替えた場合は60分の会議1本あたり約18円の試算です。</p>
+
+  <h2>それぞれのメリットとデメリット</h2>
+
+  <p class="group-title">今のコードをそのまま置く</p>
+  <div class="cards">
+    <div class="card">
+      <h3>Render(無料プラン)</h3>
+      <p class="cost">0円</p>
+      <h4 class="good">メリット</h4>
+      <ul>
+        <li>設定ファイルが用意済みで、すぐ始められる</li>
+        <li>費用がかからない</li>
+        <li>メモリを抑える処理がすでにコードに入っている</li>
+      </ul>
+      <h4 class="bad">デメリット</h4>
+      <ul>
+        <li>15分使わないと止まり、次の起動に約1分かかる</li>
+        <li>メモリ512MB・CPU 0.1コアと小さく、長い録音で落ちる可能性がある(未検証)</li>
+        <li>再起動や停止でファイルが消えるため、登録した辞書が残らない</li>
+        <li>日本のリージョンがない</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h3>Fly.io(東京)</h3>
+      <p class="cost">常時起動 約1,400円 <small>メモリ1GBの場合。512MBなら約770円</small></p>
+      <h4 class="good">メリット</h4>
+      <ul>
+        <li>東京に置けるので、アップロードが速く「国内保管」と説明できる</li>
+        <li>今の Dockerfile のまま動かせる</li>
+        <li>使っていない間は自動停止にでき、その間はほぼ課金されない</li>
+        <li>常時起動にすれば、起動待ちがない</li>
+      </ul>
+      <h4 class="bad">デメリット</h4>
+      <ul>
+        <li>無料枠がなく、カード登録が必要</li>
+        <li>設定はコマンド操作が中心</li>
+        <li>大手クラウドほどの知名度はなく、クライアント側の審査で説明が必要な場合がある</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h3>Railway(Hobby プラン)</h3>
+      <p class="cost">約790円 <small>5ドル固定、利用料5ドル分込み</small></p>
+      <h4 class="good">メリット</h4>
+      <ul>
+        <li>GitHub をつなぐだけで動き、設定がいちばん簡単</li>
+        <li>5〜10分使わないと自動でスリープする機能がある</li>
+        <li>メモリを大きく取れる</li>
+      </ul>
+      <h4 class="bad">デメリット</h4>
+      <ul>
+        <li>使わない月も5ドルかかる</li>
+        <li>スリープからの最初のアクセスは遅く、失敗することがある</li>
+        <li>日本に置けるかは未確認</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h3>Cloudflare Containers</h3>
+      <p class="cost">約790円 <small>Workers 有料プラン5ドルが必須</small></p>
+      <h4 class="good">メリット</h4>
+      <ul>
+        <li>今の Docker 構成をほぼそのまま動かせる</li>
+        <li>使っていない間は止まり、月数十本なら付属の枠に収まる見込み</li>
+        <li>辞書の保存先に Cloudflare の無料ストレージを使える</li>
+      </ul>
+      <h4 class="bad">デメリット</h4>
+      <ul>
+        <li>コンテナの手前に中継用のプログラムを書く必要がある</li>
+        <li>1回のアップロードは100MBまで(今の上限200MBを下げる必要)</li>
+        <li>安い構成は CPU が4分の1コアで、音声変換が遅い可能性がある(未検証)</li>
+      </ul>
+    </div>
+  </div>
+
+  <p class="group-title">一部を作り替えて置く</p>
+  <div class="cards">
+    <div class="card">
+      <h3>Google Cloud Run(東京)</h3>
+      <p class="cost">ほぼ0円の見込み <small>無料枠の数字は未確認</small></p>
+      <h4 class="good">メリット</h4>
+      <ul>
+        <li>大手クラウドなので、クライアントの社内審査に通しやすい</li>
+        <li>東京リージョンがある</li>
+        <li>使った分だけの課金。メモリは最大32GB、1回の処理は60分まで</li>
+      </ul>
+      <h4 class="bad">デメリット</h4>
+      <ul>
+        <li>1回のアップロードが32MBまで。会議の録画はほぼ入らない</li>
+        <li>回避には「ブラウザで音声だけ取り出して送る」などの改修が必要</li>
+        <li>初期設定(プロジェクト、権限、課金)が他より重い</li>
+      </ul>
+    </div>
+  </div>
+
+  <p class="group-title">書き直して1か所にまとめる(バックエンド用のサーバーをなくす)</p>
+  <div class="cards">
+    <div class="card">
+      <h3>Vercel に一本化</h3>
+      <p class="cost">自分用 0円 / クライアント利用 約3,200円 <small>Pro 1人20ドル</small></p>
+      <h4 class="good">メリット</h4>
+      <ul>
+        <li>デプロイ・URL・設定が1か所で済む</li>
+        <li>起動待ちがない</li>
+        <li>今のフロントエンド(Next.js)がそのまま動く</li>
+        <li>映像をサーバーに送らずに済む</li>
+      </ul>
+      <h4 class="bad">デメリット</h4>
+      <ul>
+        <li>Python のバックエンドを TypeScript で作り直す</li>
+        <li>無料プランは個人・非商用のみ</li>
+        <li>1回に送れるのは4.5MBまで。ブラウザで分割して送る作りが必要</li>
+        <li>1回の処理は無料プランで5分まで(Pro は約13分)</li>
+        <li>辞書の保存先を別に用意する必要がある</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h3>Cloudflare に一本化(Workers)</h3>
+      <p class="cost">約790円が現実的 <small>無料プランは計算時間が1回10ミリ秒</small></p>
+      <h4 class="good">メリット</h4>
+      <ul>
+        <li>1回100MBまで送れるので、圧縮した音声を分割せずに送れる</li>
+        <li>接続が続く限り処理時間の上限がない</li>
+        <li>クライアント利用でも Vercel より安い</li>
+        <li>辞書は無料のストレージで足りる</li>
+      </ul>
+      <h4 class="bad">デメリット</h4>
+      <ul>
+        <li>Python のバックエンドを TypeScript で作り直す</li>
+        <li>メモリが128MBで、ファイルを流しながら処理する書き方が必要</li>
+        <li>Next.js を動かすのに変換用の仕組みが要る(今の版で動くかは未確認)</li>
+      </ul>
+    </div>
+  </div>
+  <p class="note" style="margin-top:12px">一本化はどちらも「ブラウザの中で動画から音声を取り出して圧縮する」ことが前提です。モノラル・32kbps にすると60分で約14MB、120分で約29MBになります。変換は利用者のパソコンで行うため、1時間の録画で数分かかる可能性があり、スマホや2GBを超える録画には向きません。</p>
+
+  <h2>使い方ごとの候補</h2>
+  <div class="sheet scroll">
+    <table style="min-width:640px">
+      <thead>
+        <tr><th>使い方</th><th>候補</th><th>理由</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <th>自分だけで使う</th>
+          <td>Render(無料)で開始</td>
+          <td>設定済みで0円。メモリ不足や起動待ちが気になったら Fly.io に移る</td>
+        </tr>
+        <tr>
+          <th>クライアントにデモを見せる</th>
+          <td>Fly.io(東京)を常時起動</td>
+          <td>起動待ちがなく、改修も不要。確認期間が終われば止められる</td>
+        </tr>
+        <tr>
+          <th>クライアントが継続して使う</th>
+          <td>Google Cloud Run(東京)<br>または Fly.io(東京)</td>
+          <td>社内審査と国内保管を重視するなら Cloud Run(改修あり)。早さを重視するなら Fly.io</td>
+        </tr>
+        <tr>
+          <th>管理を1か所にしたい</th>
+          <td>Cloudflare または Vercel に一本化</td>
+          <td>書き直しの手間と引き換え。クライアント利用なら Cloudflare のほうが安い</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>置き場所より先に決めること(クライアントに出す場合)</h2>
+  <div class="sheet">
+    <ul>
+      <li><strong>ログインがない</strong>: 今は URL を知っていれば誰でも使え、サーバーに入れた API キーの料金がかかります。最低でもパスワードでの制限が必要です。</li>
+      <li><strong>費用の名義</strong>: API キーとサーバーのアカウントを誰の名義にするかで、請求と引き継ぎが変わります。</li>
+      <li><strong>音声が外部に送られる</strong>: 文字起こしと要約のために、音声と文章が外部の AI サービスに渡ります。今は画面の注意書きだけです。</li>
+      <li><strong>辞書の保存先</strong>: ファイルが消えるサービスが多いため、どこに置く場合でも見直しが必要です。</li>
+    </ul>
+  </div>
+
+  <h2>まだ確認できていないこと</h2>
+  <div class="unverified">
+    <ul>
+      <li>どのサービスにも、まだ実際にはデプロイしていません。動作・速度・メモリ不足の有無はすべて未検証です。</li>
+      <li>Render の有料プランの月額は、料金ページから読み取れませんでした(仕様は Starter が 0.5コア・512MB、Standard が 1コア・2GB)。</li>
+      <li>Google Cloud Run の無料枠の数字と、東京リージョンの単価は確認できていません。</li>
+      <li>Fly.io の東京の金額は、公式の計算式(基準料金の約1.31倍)から求めた試算です。自動停止時の「数十円」も、月10本・1本15分稼働と仮定した試算です。</li>
+      <li>Cloudflare の無料プランを商用に使ってよいか、Containers が正式版かどうかは、確認したページに記載がありませんでした。</li>
+      <li>ブラウザでの音声抽出は未実装です。変換にかかる時間と、圧縮後の文字起こし精度は試していません。</li>
+    </ul>
+  </div>
+
+  <h2>参照した公式ページ</h2>
+  <div class="sources">
+    <ul>
+      <li>Render 無料プラン: <a href="https://render.com/docs/free">https://render.com/docs/free</a></li>
+      <li>Render プランの仕様: <a href="https://render.com/docs/compute-plans">https://render.com/docs/compute-plans</a></li>
+      <li>Render リージョン: <a href="https://render.com/docs/regions">https://render.com/docs/regions</a></li>
+      <li>Fly.io 料金: <a href="https://docs.fly.io/about/pricing">https://docs.fly.io/about/pricing</a></li>
+      <li>Railway 料金: <a href="https://railway.com/pricing">https://railway.com/pricing</a></li>
+      <li>Railway スリープ機能: <a href="https://docs.railway.com/reference/app-sleeping">https://docs.railway.com/reference/app-sleeping</a></li>
+      <li>Cloud Run の上限: <a href="https://docs.cloud.google.com/run/quotas">https://docs.cloud.google.com/run/quotas</a></li>
+      <li>Cloudflare Workers の上限: <a href="https://developers.cloudflare.com/workers/platform/limits/">https://developers.cloudflare.com/workers/platform/limits/</a></li>
+      <li>Cloudflare Workers 料金: <a href="https://developers.cloudflare.com/workers/platform/pricing/">https://developers.cloudflare.com/workers/platform/pricing/</a></li>
+      <li>Cloudflare Containers 料金: <a href="https://developers.cloudflare.com/containers/pricing/">https://developers.cloudflare.com/containers/pricing/</a></li>
+      <li>Vercel Functions の上限: <a href="https://vercel.com/docs/functions/limitations">https://vercel.com/docs/functions/limitations</a></li>
+      <li>Vercel Hobby プラン: <a href="https://vercel.com/docs/plans/hobby">https://vercel.com/docs/plans/hobby</a></li>
+    </ul>
+  </div>
+
+</div>
+</body>
+</html>
